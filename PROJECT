@@ -1,0 +1,7 @@
+domain: techsquad.rocks
+layout: go.kubebuilder.io/v2
+projectName: kubernetes-prefetch-operator
+repo: github.com/kainlite/kubernetes-prefetch-operator
+version: 3-alpha
+plugins:
+  go.sdk.operatorframework.io/v2-alpha: {}
