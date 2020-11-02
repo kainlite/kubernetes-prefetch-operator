@@ -20,22 +20,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
 // PrefetchSpec defines the desired state of Prefetch
 type PrefetchSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// Foo is an example field of Prefetch. Edit Prefetch_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	Labels        map[string]string `json:"labels,omitempty"`
+	WaitInSeconds int               `json:"wait_in_seconds,omitempty"`
 }
 
 // PrefetchStatus defines the observed state of Prefetch
 type PrefetchStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
 }
 
 // +kubebuilder:object:root=true

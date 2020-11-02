@@ -3,5 +3,9 @@ kind: Prefetch
 metadata:
   name: prefetch-sample
 spec:
-  # Add fields here
-  foo: bar
+  # We will use labels to fetch the deployments that we want to fetch images for, but we
+  # don't want to prefetch everything in the cluster that would be too much bandwidth
+  # for no reason, but for this deployment we want to have it everywhere ready to be used.
+  labels:
+    app: nginx
+  wait_in_seconds: 60

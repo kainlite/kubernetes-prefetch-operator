@@ -18,11 +18,16 @@ package controllers
 
 import (
 	"context"
+	"time"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	cachev1 "github.com/kainlite/kubernetes-prefetch-operator/api/v1"
 )
@@ -35,15 +40,38 @@ type PrefetchReconciler struct {
 }
 
 // +kubebuilder:rbac:groups=cache.techsquad.rocks,resources=prefetches,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=cache.techsquad.rocks,resources=cache,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=cache.techsquad.rocks,resources=prefetches/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=cache.techsquad.rocks,resources=pods/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;create;update;patch;delete
 
 func (r *PrefetchReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	_ = context.Background()
 	_ = r.Log.WithValues("prefetch", req.NamespacedName)
 
-	// your logic here
+	prefetch := &cachev1.Prefetch{}
+	err := r.Get(context.TODO(), req.NamespacedName, prefetch)
 
-	return ctrl.Result{}, nil
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		panic(err.Error())
+	}
+	// creates the clientset
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		panic(err.Error())
+	}
+
+	reqLogger := r.Log.WithValues("namespace", req.Namespace, "MapForward", req.Name)
+	reqLogger.Info("=== Reconciling Forward Map")
+
+	pods, err := clientset.CoreV1().Pods("").List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		panic(err.Error())
+	}
+	_ = r.Log.WithValues("There are %d pods in the cluster\n", len(pods.Items))
+
+	return ctrl.Result{RequeueAfter: time.Second * prefetch.WaitInSeconds}, nil
 }
 
 func (r *PrefetchReconciler) SetupWithManager(mgr ctrl.Manager) error {

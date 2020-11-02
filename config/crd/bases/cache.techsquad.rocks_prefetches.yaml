@@ -36,10 +36,12 @@ spec:
         spec:
           description: PrefetchSpec defines the desired state of Prefetch
           properties:
-            foo:
-              description: Foo is an example field of Prefetch. Edit Prefetch_types.go
-                to remove/update
-              type: string
+            labels:
+              additionalProperties:
+                type: string
+              type: object
+            wait_in_seconds:
+              type: integer
           type: object
         status:
           description: PrefetchStatus defines the observed state of Prefetch

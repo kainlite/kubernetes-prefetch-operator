@@ -56,6 +56,7 @@ func main() {
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+		Namespace:          "",
 		Scheme:             scheme,
 		MetricsBindAddress: metricsAddr,
 		Port:               9443,
