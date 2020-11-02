@@ -10,7 +10,7 @@ There is a blog page describing how to get here, [check it out](https://techsqua
 ### Installation
 To install this operator in your cluster you need to do the following:
 ```
-make deploy IMG=kubernetes/kainlite:latest
+make deploy IMG=kainlite/kubernetes-prefetch-operator:latest
 ```
 
 ### Use cases

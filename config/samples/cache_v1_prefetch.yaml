@@ -1,0 +1,7 @@
+apiVersion: cache.techsquad.rocks/v1
+kind: Prefetch
+metadata:
+  name: prefetch-sample
+spec:
+  # Add fields here
+  foo: bar

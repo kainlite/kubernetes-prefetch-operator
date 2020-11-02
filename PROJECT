@@ -2,6 +2,10 @@ domain: techsquad.rocks
 layout: go.kubebuilder.io/v2
 projectName: kubernetes-prefetch-operator
 repo: github.com/kainlite/kubernetes-prefetch-operator
+resources:
+- group: cache
+  kind: Prefetch
+  version: v1
 version: 3-alpha
 plugins:
   go.sdk.operatorframework.io/v2-alpha: {}
