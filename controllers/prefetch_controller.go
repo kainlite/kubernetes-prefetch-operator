@@ -51,11 +51,15 @@ func (r *PrefetchReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 
 	prefetch := &cachev1.Prefetch{}
 	err := r.Get(context.TODO(), req.NamespacedName, prefetch)
+	if err != nil {
+		panic(err.Error())
+	}
 
 	config, err := rest.InClusterConfig()
 	if err != nil {
 		panic(err.Error())
 	}
+
 	// creates the clientset
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
@@ -70,6 +74,8 @@ func (r *PrefetchReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		panic(err.Error())
 	}
 	_ = r.Log.WithValues("There are %d pods in the cluster\n", len(pods.Items))
+	_ = r.Log.WithValues("Labels %+v", prefetch.Labels)
+	_ = r.Log.WithValues("Time to wait %+v", prefetch.WaitInSeconds)
 
 	return ctrl.Result{RequeueAfter: time.Second * prefetch.WaitInSeconds}, nil
 }
