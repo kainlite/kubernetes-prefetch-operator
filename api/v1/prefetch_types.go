@@ -22,8 +22,14 @@ import (
 
 // PrefetchSpec defines the desired state of Prefetch
 type PrefetchSpec struct {
-	Labels        map[string]string `json:"labels,omitempty"`
-	WaitInSeconds int               `json:"wait_in_seconds,omitempty"`
+	// Labels are the labels to use to filter the deployments
+	FilterByLabels map[string]string `json:"filter_by_labels,omitempty"`
+
+	// The default time to wait between fetch and fetch
+	// if not specified it will default to 60 seconds
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	RetryAfter *int32 `json:"retry_after,omitempty"`
 }
 
 // PrefetchStatus defines the observed state of Prefetch
@@ -43,6 +49,7 @@ type Prefetch struct {
 }
 
 // +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
 
 // PrefetchList contains a list of Prefetch
 type PrefetchList struct {

@@ -18,14 +18,18 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/prometheus/common/log"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -39,21 +43,41 @@ type PrefetchReconciler struct {
 	Scheme *runtime.Scheme
 }
 
+// I have been rather permissive than restrictive here, so be aware of that when using this
 // +kubebuilder:rbac:groups=cache.techsquad.rocks,resources=prefetches,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=cache.techsquad.rocks,resources=cache,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=cache.techsquad.rocks,resources=prefetches/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=cache.techsquad.rocks,resources=pods/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;delete
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 func (r *PrefetchReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	_ = context.Background()
-	_ = r.Log.WithValues("prefetch", req.NamespacedName)
+	reqLogger := r.Log.WithValues("prefetch", req.NamespacedName)
 
 	prefetch := &cachev1.Prefetch{}
-	err := r.Get(context.TODO(), req.NamespacedName, prefetch)
+	fmt.Printf("Labels %+v", prefetch)
+
+	err := r.Client.Get(context.TODO(), req.NamespacedName, prefetch)
 	if err != nil {
-		panic(err.Error())
+		log.Error(err, "failed to get Prefetch resource")
+		if errors.IsNotFound(err) {
+			// Request object not found, could have been deleted after
+			// reconcile request—return and don't requeue:
+			return reconcile.Result{}, client.IgnoreNotFound(err)
+		}
+		// Error reading the object—requeue the request:
+		return reconcile.Result{}, err
 	}
+
+	reqLogger.Info("Labels %+v", prefetch.FilterByLabels)
+	reqLogger.Info("RetryAfter %+v", prefetch.RetryAfter)
+	// reqLogger.Info("RetryAfter %+v", prefetch.RetryAfter)
+	// retryAfter := prefetch.RetryAfter
+	// if retry == nil {
+	//	retry := 60
+	// }
 
 	config, err := rest.InClusterConfig()
 	if err != nil {
@@ -66,18 +90,18 @@ func (r *PrefetchReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		panic(err.Error())
 	}
 
-	reqLogger := r.Log.WithValues("namespace", req.Namespace, "MapForward", req.Name)
-	reqLogger.Info("=== Reconciling Forward Map")
-
+	reqLogger.Info("Fetching deployments")
 	pods, err := clientset.CoreV1().Pods("").List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		panic(err.Error())
 	}
-	_ = r.Log.WithValues("There are %d pods in the cluster\n", len(pods.Items))
-	_ = r.Log.WithValues("Labels %+v", prefetch.Labels)
-	_ = r.Log.WithValues("Time to wait %+v", prefetch.WaitInSeconds)
+	fmt.Printf("There are %d pods in the cluster\n", len(pods.Items))
+	// reqLogger.Info("Labels %+v", prefetch.Labels)
+	// _ = r.Log.WithValues("Time to wait %+v", prefetch.Retry)
 
-	return ctrl.Result{RequeueAfter: time.Second * prefetch.WaitInSeconds}, nil
+	// return ctrl.Result{RequeueAfter: time.Second * prefetch.Retry}, nil
+	// strconv.Itoa(cr.Spec.Retry)
+	return ctrl.Result{RequeueAfter: time.Second * 60}, nil
 }
 
 func (r *PrefetchReconciler) SetupWithManager(mgr ctrl.Manager) error {

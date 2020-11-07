@@ -5,4 +5,4 @@ kind: Kustomization
 images:
 - name: controller
   newName: kainlite/kubernetes-prefetch-operator
-  newTag: latest
+  newTag: latest1
