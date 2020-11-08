@@ -48,7 +48,7 @@ build:
     - docker login -u "kainlite" -p "${DOCKERHUB_TOKEN}"
     - docker pull "$IMAGE_NAME:${CI_COMMIT_SHA}" || true
     - make docker-build docker-push IMG="${IMAGE_NAME}:${CI_COMMIT_SHA}"
-    - docker tag "kainlite/forward:${CI_COMMIT_SHA}" "$IMAGE_NAME:latest"
+    - docker tag "kainlite/kubernetes-prefetch-operator:${CI_COMMIT_SHA}" "$IMAGE_NAME:latest"
     - make docker-push IMG="${IMAGE_NAME}:latest"
   cache:
     key: "$CI_COMMIT_REF_SLUG"
