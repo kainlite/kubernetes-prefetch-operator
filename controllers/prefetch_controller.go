@@ -89,12 +89,12 @@ func fetchImagesWithTags(clientset *kubernetes.Clientset, labels map[string]stri
 	}
 	for _, d := range DeploymentList.Items {
 		for _, f := range d.Spec.Template.Spec.InitContainers {
-			fmt.Printf("Adding init container %s to the list\n", f.Image)
+			fmt.Printf("Adding image %s to the list\n", f.Image)
 			list = append(list, fmt.Sprintf("%s", f.Image))
 		}
 
 		for _, f := range d.Spec.Template.Spec.Containers {
-			fmt.Printf("Adding container %s to the list\n", f.Image)
+			fmt.Printf("Adding image %s to the list\n", f.Image)
 			list = append(list, fmt.Sprintf("%s", f.Image))
 		}
 	}
@@ -124,7 +124,7 @@ func fetchNodeNames(clientset *kubernetes.Clientset, prefetch *cachev1.Prefetch)
 // This is where the pod is created and we use affinity to make sure it uses the right host
 func PrefetchImages(r *PrefetchReconciler, prefetch *cachev1.Prefetch) {
 	id := uuid.New()
-	prefix := "prefetch-pod"
+	prefix := "prefetch-operator-pod"
 	name := prefix + "-" + id.String()
 	labels := map[string]string{
 		"app": prefix,
@@ -135,13 +135,13 @@ func PrefetchImages(r *PrefetchReconciler, prefetch *cachev1.Prefetch) {
 	nodeList := fetchNodeNames(clientset, prefetch)
 
 	for _, node := range nodeList {
-		for _, image := range imagesWithTags {
+		for index, image := range imagesWithTags {
 			// command := fmt.Sprintf("docker pull %s")
 			command := fmt.Sprintf("/bin/sh -c exit")
 
 			pod := &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      name + "-" + node,
+					Name:      fmt.Sprintf("%s-%s-%d", name, node, index),
 					Namespace: prefetch.Namespace,
 					Labels:    labels,
 				},
@@ -184,6 +184,10 @@ func PrefetchImages(r *PrefetchReconciler, prefetch *cachev1.Prefetch) {
 			}
 
 			// Transition our own status
+			// the status is not really relevant here
+			// but we want to keep track of our pods
+			// so if the operator goes away takes it's pods
+			// with it
 			switch prefetch.Status.Phase {
 			case cachev1.PhasePending:
 				prefetch.Status.Phase = cachev1.PhaseRunning
@@ -216,9 +220,11 @@ func PrefetchImages(r *PrefetchReconciler, prefetch *cachev1.Prefetch) {
 // Delete all pods that have already ran and are in Completed/Succeeded status
 func DeleteCompletedPods(prefetch *cachev1.Prefetch) {
 	fieldSelectorFilter := "status.phase=Succeeded"
+	labelsAsString := "app=prefetch-operator-pod"
 	clientset, _ := getClientSet()
 
-	pods, err := clientset.CoreV1().Pods(prefetch.Namespace).List(context.TODO(), metav1.ListOptions{FieldSelector: fieldSelectorFilter})
+	pods, err := clientset.CoreV1().Pods(prefetch.Namespace).List(context.TODO(),
+		metav1.ListOptions{FieldSelector: fieldSelectorFilter, LabelSelector: labelsAsString})
 	if err != nil {
 		fmt.Printf("failed to retrieve Pods: %+v\n", err)
 	}
