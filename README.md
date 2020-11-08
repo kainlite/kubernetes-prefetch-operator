@@ -1,4 +1,4 @@
-### Forward Operator
+### Kubernetes Prefetch Operator
 
 [![pipeline status](https://gitlab.com/kainlite/kubernetes-prefetch-operator/badges/master/pipeline.svg)](https://gitlab.com/kainlite/kubernetes-prefetch-operator/commits/master)
 [![coverage report](https://gitlab.com/kainlite/kubernetes-prefetch-operator/badges/master/coverage.svg)](https://gitlab.com/kainlite/kubernetes-prefetch-operator/commits/master)
