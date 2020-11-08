@@ -19,19 +19,25 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/prometheus/common/log"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	"github.com/google/uuid"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	set "k8s.io/apimachinery/pkg/labels"
 
 	cachev1 "github.com/kainlite/kubernetes-prefetch-operator/api/v1"
 )
@@ -51,17 +57,189 @@ type PrefetchReconciler struct {
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;delete
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 
+// Generate an in-cluster config
+func getClientSet() (*kubernetes.Clientset, error) {
+	// creates the in-cluster config
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		panic(err.Error())
+	}
+	// creates the clientset
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		panic(err.Error())
+	}
+
+	return clientset, err
+}
+
+// Fetch all deployments and then make a list of all the images used in init containers and normal containers
+func fetchImagesWithTags(clientset *kubernetes.Clientset, labels map[string]string) []string {
+	list := []string{}
+	labelsAsString := set.FormatLabels(labels)
+	fmt.Printf("labelsAsString: %+v\n", labelsAsString)
+
+	// List Deployments
+	deploymentsClient := clientset.AppsV1().Deployments("")
+	DeploymentList, err := deploymentsClient.List(context.TODO(), metav1.ListOptions{LabelSelector: labelsAsString})
+	if err != nil {
+		fmt.Printf("Error fetching deployments, check your labels: %+v\n", err)
+	}
+	for _, d := range DeploymentList.Items {
+		for _, f := range d.Spec.Template.Spec.InitContainers {
+			fmt.Printf("Adding init container %s to the list\n", f.Image)
+			list = append(list, fmt.Sprintf("%s", f.Image))
+		}
+
+		for _, f := range d.Spec.Template.Spec.Containers {
+			fmt.Printf("Adding container %s to the list\n", f.Image)
+			list = append(list, fmt.Sprintf("%s", f.Image))
+		}
+	}
+
+	return list
+}
+
+// Fetch all node names to be able to iterate to the ones that we want specify by the filter
+func fetchNodeNames(clientset *kubernetes.Clientset, prefetch *cachev1.Prefetch) []string {
+	list := []string{}
+	nodes, err := clientset.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		fmt.Printf("Error fetching nodes, check your permissions: %+v\n", err)
+	}
+
+	for _, node := range nodes.Items {
+		if strings.Contains(node.Name, prefetch.Spec.NodeFilter) {
+			list = append(list, node.Name)
+		}
+	}
+
+	fmt.Printf("Node list: %+v\n", list)
+
+	return list
+}
+
+// This is where the pod is created and we use affinity to make sure it uses the right host
+func PrefetchImages(r *PrefetchReconciler, prefetch *cachev1.Prefetch) {
+	id := uuid.New()
+	prefix := "prefetch-pod"
+	name := prefix + "-" + id.String()
+	labels := map[string]string{
+		"app": prefix,
+	}
+
+	clientset, _ := getClientSet()
+	imagesWithTags := fetchImagesWithTags(clientset, prefetch.Spec.FilterByLabels)
+	nodeList := fetchNodeNames(clientset, prefetch)
+
+	for _, node := range nodeList {
+		for _, image := range imagesWithTags {
+			// command := fmt.Sprintf("docker pull %s")
+			command := fmt.Sprintf("/bin/sh -c exit")
+
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      name + "-" + node,
+					Namespace: prefetch.Namespace,
+					Labels:    labels,
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:    "prefetch",
+							Command: strings.Split(command, " "),
+							Image:   image,
+							// Initially I was going to use a privileged container
+							// to talk to the docker daemon, but I then realized
+							// it's easier to call the image with exit 0
+							// Image:           "docker/dind",
+							// SecurityContext: &v1.SecurityContext{Privileged: &privileged},
+						},
+					},
+					RestartPolicy: corev1.RestartPolicyOnFailure,
+					Affinity: &corev1.Affinity{
+						NodeAffinity: &corev1.NodeAffinity{
+							RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+								NodeSelectorTerms: []corev1.NodeSelectorTerm{
+									{
+										MatchExpressions: []corev1.NodeSelectorRequirement{
+											{
+												Key:      "kubernetes.io/hostname",
+												Operator: "In",
+												Values:   []string{node},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+
+			if prefetch.Status.Phase == "" || prefetch.Status.Phase == "PENDING" {
+				prefetch.Status.Phase = cachev1.PhaseRunning
+			}
+
+			// Transition our own status
+			switch prefetch.Status.Phase {
+			case cachev1.PhasePending:
+				prefetch.Status.Phase = cachev1.PhaseRunning
+			case cachev1.PhaseRunning:
+				err := controllerutil.SetControllerReference(prefetch, pod, r.Scheme)
+				found := &corev1.Pod{}
+				nsName := types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}
+				err = r.Get(context.TODO(), nsName, found)
+				if err != nil && errors.IsNotFound(err) {
+					_ = r.Create(context.TODO(), pod)
+					fmt.Printf("Pod launched with name: %+v\n", pod.Name)
+				} else if found.Status.Phase == corev1.PodFailed ||
+					found.Status.Phase == corev1.PodSucceeded {
+					fmt.Printf("Container terminated reason with message: %+v, and status: %+v",
+						found.Status.Reason, found.Status.Message)
+					prefetch.Status.Phase = cachev1.PhaseFailed
+				}
+			}
+
+			// Update the At prefetch, setting the status to the respective phase:
+			err := r.Status().Update(context.TODO(), prefetch)
+			err = r.Create(context.TODO(), pod)
+			if err != nil {
+				fmt.Printf("There was an error invoking the pod: %+v\n", err)
+			}
+		}
+	}
+}
+
+// Delete all pods that have already ran and are in Completed/Succeeded status
+func DeleteCompletedPods(prefetch *cachev1.Prefetch) {
+	fieldSelectorFilter := "status.phase=Succeeded"
+	clientset, _ := getClientSet()
+
+	pods, err := clientset.CoreV1().Pods(prefetch.Namespace).List(context.TODO(), metav1.ListOptions{FieldSelector: fieldSelectorFilter})
+	if err != nil {
+		fmt.Printf("failed to retrieve Pods: %+v\n", err)
+	}
+
+	for _, pod := range pods.Items {
+		fmt.Printf("Deleting pod: %+v\n", pod.Name)
+		if err := clientset.CoreV1().Pods(prefetch.Namespace).Delete(context.TODO(), pod.Name, metav1.DeleteOptions{}); err != nil {
+			fmt.Printf("Failed to delete Pod: %+v", err)
+		}
+	}
+}
+
+// This would be like the main of our code
 func (r *PrefetchReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	_ = context.Background()
-	reqLogger := r.Log.WithValues("prefetch", req.NamespacedName)
+	r.Log.WithValues("prefetch", req.NamespacedName)
 
 	prefetch := &cachev1.Prefetch{}
-	fmt.Printf("Labels %+v", prefetch)
-
 	err := r.Client.Get(context.TODO(), req.NamespacedName, prefetch)
 	if err != nil {
-		log.Error(err, "failed to get Prefetch resource")
+		log.Error(err, "failed to get Prefetch resource\n")
 		if errors.IsNotFound(err) {
 			// Request object not found, could have been deleted after
 			// reconcile request—return and don't requeue:
@@ -71,37 +249,29 @@ func (r *PrefetchReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		return reconcile.Result{}, err
 	}
 
-	reqLogger.Info("Labels %+v", prefetch.FilterByLabels)
-	reqLogger.Info("RetryAfter %+v", prefetch.RetryAfter)
-	// reqLogger.Info("RetryAfter %+v", prefetch.RetryAfter)
-	// retryAfter := prefetch.RetryAfter
-	// if retry == nil {
-	//	retry := 60
-	// }
+	fmt.Printf("Filter by labels %+v\n", prefetch.Spec.FilterByLabels)
+	fmt.Printf("RetryAfter %+v\n", prefetch.Spec.RetryAfter)
 
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		panic(err.Error())
+	var retryAfter int
+	if prefetch.Spec.RetryAfter != 0 {
+		retryAfter = prefetch.Spec.RetryAfter
+	} else {
+		retryAfter = 300
 	}
 
-	// creates the clientset
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		panic(err.Error())
+	if len(prefetch.Spec.FilterByLabels) > 0 {
+		PrefetchImages(r, prefetch)
+	} else {
+		fmt.Printf("Skipping empty labels\n")
 	}
 
-	reqLogger.Info("Fetching deployments")
-	pods, err := clientset.CoreV1().Pods("").List(context.TODO(), metav1.ListOptions{})
-	if err != nil {
-		panic(err.Error())
-	}
-	fmt.Printf("There are %d pods in the cluster\n", len(pods.Items))
-	// reqLogger.Info("Labels %+v", prefetch.Labels)
-	// _ = r.Log.WithValues("Time to wait %+v", prefetch.Retry)
+	DeleteCompletedPods(prefetch)
 
-	// return ctrl.Result{RequeueAfter: time.Second * prefetch.Retry}, nil
-	// strconv.Itoa(cr.Spec.Retry)
-	return ctrl.Result{RequeueAfter: time.Second * 60}, nil
+	if err != nil {
+		return ctrl.Result{RequeueAfter: time.Second * time.Duration(retryAfter)}, nil
+	} else {
+		return ctrl.Result{RequeueAfter: time.Second * time.Duration(retryAfter)}, err
+	}
 }
 
 func (r *PrefetchReconciler) SetupWithManager(mgr ctrl.Manager) error {

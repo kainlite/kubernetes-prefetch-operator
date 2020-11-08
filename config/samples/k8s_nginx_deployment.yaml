@@ -4,6 +4,7 @@ metadata:
   name: nginx-deployment
   labels:
     app: nginx
+  namespace: default
 spec:
   # One of our nodes won't have that label so we can validate
   # that our operator prefetches images even if the deployment

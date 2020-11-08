@@ -20,20 +20,32 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// Phases
+const (
+	PhasePending = "PENDING"
+	PhaseRunning = "RUNNING"
+	PhaseFailed  = "FAILED"
+)
+
 // PrefetchSpec defines the desired state of Prefetch
 type PrefetchSpec struct {
 	// Labels are the labels to use to filter the deployments
+	// +kubebuilder:default={}
 	FilterByLabels map[string]string `json:"filter_by_labels,omitempty"`
 
+	// Simple matcher of the hostname of the nodes
+	NodeFilter string `json:"node_filter,omitempty"`
+
 	// The default time to wait between fetch and fetch
-	// if not specified it will default to 60 seconds
+	// if not specified it will default to 300 seconds
 	// +optional
 	// +kubebuilder:validation:Minimum=0
-	RetryAfter *int32 `json:"retry_after,omitempty"`
+	RetryAfter int `json:"retry_after,omitempty"`
 }
 
 // PrefetchStatus defines the observed state of Prefetch
 type PrefetchStatus struct {
+	Phase string `json:"phase,omitempty"`
 }
 
 // +kubebuilder:object:root=true

@@ -36,20 +36,25 @@ spec:
         spec:
           description: PrefetchSpec defines the desired state of Prefetch
           properties:
-            labels:
+            filter_by_labels:
               additionalProperties:
                 type: string
               description: Labels are the labels to use to filter the deployments
               type: object
+            node_filter:
+              description: Simple matcher of the hostname of the nodes
+              type: string
             retry_after:
               description: The default time to wait between fetch and fetch if not
-                specified it will default to 60 seconds
-              format: int32
+                specified it will default to 300 seconds
               minimum: 0
               type: integer
           type: object
         status:
           description: PrefetchStatus defines the observed state of Prefetch
+          properties:
+            phase:
+              type: string
           type: object
       type: object
   version: v1

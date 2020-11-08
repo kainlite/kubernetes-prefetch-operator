@@ -2,10 +2,13 @@ apiVersion: cache.techsquad.rocks/v1
 kind: Prefetch
 metadata:
   name: prefetch-sample
+  namespace: default
 spec:
   # We will use labels to fetch the deployments that we want to fetch images for, but we
   # don't want to prefetch everything in the cluster that would be too much bandwidth
   # for no reason, but for this deployment we want to have it everywhere ready to be used.
-  labels:
+  filter_by_labels:
     app: nginx
   retry_after: 60
+  # this is a strings.Contains
+  node_filter: worker
