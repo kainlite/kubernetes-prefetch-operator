@@ -5,7 +5,7 @@
 
 This project aims to do one thing: Prefetch your docker images in all your nodes given a deployment and some filters.
 
-There is a blog page describing how to get here, [check it out](https://techsquad.rocks/blog/creating_a_prefetch_method_for_kubernetes_with_the_operator_sdk/).
+There is a blog page describing how to get here, [check it out](https://techsquad.rocks/blog/testing_the_operator_sdk_and_making_a_prefetch_mechanism_for_kubernetes/).
 
 ### Installation
 To install this operator in your cluster you need to do the following:
