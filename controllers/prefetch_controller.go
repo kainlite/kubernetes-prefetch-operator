@@ -49,6 +49,11 @@ type PrefetchReconciler struct {
 	Scheme *runtime.Scheme
 }
 
+type Image struct {
+	URI     string
+	Secrets []corev1.LocalObjectReference
+}
+
 // I have been rather permissive than restrictive here, so be aware of that when using this
 // +kubebuilder:rbac:groups=cache.techsquad.rocks,resources=prefetches,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=cache.techsquad.rocks,resources=cache,verbs=get;list;watch;create;update;patch;delete
@@ -76,8 +81,8 @@ func getClientSet() (*kubernetes.Clientset, error) {
 }
 
 // Fetch all deployments and then make a list of all the images used in init containers and normal containers
-func fetchImagesWithTags(clientset *kubernetes.Clientset, labels map[string]string) []string {
-	list := []string{}
+func fetchImagesWithTags(clientset *kubernetes.Clientset, labels map[string]string) []Image {
+	var list []Image
 	labelsAsString := set.FormatLabels(labels)
 	fmt.Printf("labelsAsString: %+v\n", labelsAsString)
 
@@ -88,14 +93,17 @@ func fetchImagesWithTags(clientset *kubernetes.Clientset, labels map[string]stri
 		fmt.Printf("Error fetching deployments, check your labels: %+v\n", err)
 	}
 	for _, d := range DeploymentList.Items {
+		secret := d.Spec.Template.Spec.ImagePullSecrets
 		for _, f := range d.Spec.Template.Spec.InitContainers {
-			fmt.Printf("Adding image %s to the list\n", f.Image)
-			list = append(list, fmt.Sprintf("%s", f.Image))
+			fmt.Printf("Adding init container %s to the list\n", f.Image)
+			list = append(list, Image{URI: fmt.Sprintf("%s", f.Image),
+				Secrets: secret})
 		}
 
 		for _, f := range d.Spec.Template.Spec.Containers {
-			fmt.Printf("Adding image %s to the list\n", f.Image)
-			list = append(list, fmt.Sprintf("%s", f.Image))
+			fmt.Printf("Adding container %s to the list\n", f.Image)
+			list = append(list, Image{URI: fmt.Sprintf("%s", f.Image),
+				Secrets: secret})
 		}
 	}
 
@@ -150,7 +158,7 @@ func PrefetchImages(r *PrefetchReconciler, prefetch *cachev1.Prefetch) {
 						{
 							Name:    "prefetch",
 							Command: strings.Split(command, " "),
-							Image:   image,
+							Image:   image.URI,
 							// Initially I was going to use a privileged container
 							// to talk to the docker daemon, but I then realized
 							// it's easier to call the image with exit 0
@@ -176,6 +184,7 @@ func PrefetchImages(r *PrefetchReconciler, prefetch *cachev1.Prefetch) {
 							},
 						},
 					},
+					ImagePullSecrets: image.Secrets,
 				},
 			}
 
